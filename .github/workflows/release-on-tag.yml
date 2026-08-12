@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Verify tag matches Cargo.toml version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ github.ref_name }}"
+          cargo_version="v$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
+          if [ "$tag" != "$cargo_version" ]; then
+            echo "::error::Tag '$tag' does not match Cargo.toml version '$cargo_version'"
+            exit 1
+          fi
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Test
+        run: cargo test --all-targets
+
+      - name: Build release
+        run: cargo build --release --target x86_64-pc-windows-msvc
+
+      - name: Prepare release assets
+        shell: pwsh
+        run: |
+          $exe = "target/x86_64-pc-windows-msvc/release/LogiBatteryTray.exe"
+          if (-not (Test-Path $exe)) {
+            throw "Expected binary not found at $exe"
+          }
+          Copy-Item $exe LogiBatteryTray.exe
+          $hash = (Get-FileHash LogiBatteryTray.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  LogiBatteryTray.exe" | Set-Content SHA256SUMS.txt
+
+      - name: Determine release notes range
+        id: release_notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ github.ref_name }}"
+          if prev_tag=$(git describe --tags --abbrev=0 "$tag^" 2>/dev/null); then
+            echo "prev_tag=$prev_tag" >> "$GITHUB_OUTPUT"
+          else
+            echo "prev_tag=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ github.ref_name }}"
+          prev_tag="${{ steps.release_notes.outputs.prev_tag }}"
+          release_args=(--title "$tag" --generate-notes)
+          if [ -n "$prev_tag" ]; then
+            release_args+=(--notes-start-tag "$prev_tag")
+          fi
+          if ! gh release view "$tag" > /dev/null 2>&1; then
+            gh release create "$tag" "${release_args[@]}"
+          fi
+          gh release upload "$tag" LogiBatteryTray.exe SHA256SUMS.txt --clobber
