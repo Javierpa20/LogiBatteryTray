@@ -1,52 +1,39 @@
 # LogiBatteryTray
 
-LogiBatteryTray 是面向本机 Logitech 键鼠的轻量 Windows 电量托盘程序. 它直接通过 USB 接收器读取 HID++ 电量，不依赖 Logitech Options+，不联网、不含遥测或自动更新.
+[简体中文](README.zh-CN.md)
 
-当前实机目标：
+LogiBatteryTray is a lightweight Windows tray battery monitor for Logitech keyboards and mice. It reads HID++ devices directly through USB receivers and can also read Bluetooth Low Energy devices through Windows' standard GATT Battery Service. It does not require Logitech Options+, connect to the Internet, collect telemetry, or auto-update.
 
-- MX Keys Wireless Keyboard（Unifying 接收器）.
-- MX Master 3S（Bolt 接收器）.
+## Features
 
-## 功能
+- Combines all devices into a single tray icon and displays the lowest battery level, so the device that needs attention stays visible.
+- Lists each device and its individual battery level in the tooltip and right-click menu. A sleeping or disconnected device keeps its last reading and is clearly marked inactive.
+- Supports Logitech HID++ 2.0 devices connected through Unifying, Bolt, or LIGHTSPEED USB receivers.
+- Supports Bluetooth LE keyboards and mice that Windows identifies as HID peripherals, or recognizable Logitech input devices, when they expose the standard Battery Service (`0x180F`) and Battery Level characteristic (`0x2A19`).
+- Deduplicates a device visible through both a receiver and Bluetooth; a live receiver reading wins because HID++ provides event-driven updates.
+- Provides manual refresh, percentage/battery icon modes, low-battery notifications, configurable thresholds and cooldowns, and an opt-in launch-at-login option.
+- Includes `--once` for current battery readings and `--diag` for HID++ diagnostics.
 
-- 键盘和鼠标合并为一枚汇总托盘图标，默认显示所有设备中的最低电量，优先暴露需要充电的设备.
-- 悬停提示和中文右键菜单同时列出每台设备的独立电量；在线读数彩色显示，最低电量设备休眠或断连时汇总图标灰显，并明确标注“最后读数”.
-- 可立即刷新并切换数字/电池图标.
-- 支持低电量提醒、阈值与重复提醒间隔、HID++ 事件驱动更新及低频兜底刷新.
-- 登录启动为可选项，默认关闭.
-- `--once` 输出当前设备电量；`--diag` 输出 HID++ 诊断信息.
+## Bluetooth compatibility
 
-限制：只支持通过 Logitech Unifying、Bolt 或 LIGHTSPEED USB 接收器连接并实现 HID++ 2.0 电量特性的设备. 纯蓝牙连接不在支持范围内.
+Bluetooth support uses Windows' native WinRT GATT APIs and does not depend on Options+. It works only when Windows exposes the device's standard GATT Battery Service. Unrelated BLE battery devices are filtered out. Some Logitech models or firmware expose battery information only through proprietary services; those devices cannot be read over Bluetooth by this implementation and may still work through a supported USB receiver.
 
-## 使用
+Charging state is currently available from HID++ receiver devices. The standard Bluetooth Battery Level characteristic supplies a percentage but no universal charging-state value.
 
-直接运行 `LogiBatteryTray.exe`. 程序没有主窗口，一枚汇总图标会出现在 Windows 通知区域（必要时展开 `^`）.
+## Usage
 
-命令行检查：
+Run `LogiBatteryTray.exe`. The app has no main window; one summary icon appears in the Windows notification area (expand `^` if necessary).
+
+Command-line checks:
 
 ```powershell
 & '.\LogiBatteryTray.exe' --once
 & '.\LogiBatteryTray.exe' --diag
 ```
 
-配置、设备能力缓存和滚动日志默认保存在 `%APPDATA%\logitray`.
+Configuration, the HID++ capability cache, and rotating logs are stored in `%APPDATA%\logitray` by default. Launch at login is disabled until explicitly enabled from the tray menu.
 
-默认配置：
-
-```toml
-poll_interval_seconds = 180
-low_battery_threshold = 15
-low_battery_cooldown_minutes = 120
-selected_device_id = ""
-autostart = false
-log_level = "info"
-view_mode = "text"
-notifications_enabled = true
-```
-
-`selected_device_id` 是上游版本遗留兼容字段；定制版始终汇总所有设备，不再使用它筛选单一设备.
-
-## 构建
+## Build
 
 ```powershell
 cargo fmt -- --check
@@ -54,10 +41,10 @@ cargo test --all-targets
 cargo build --release
 ```
 
-Windows MSVC 构建产物位于 `target\release\LogiBatteryTray.exe`. 仓库的 `dist\` 保存已验收的便携 EXE、许可和 SHA-256 清单.
+The Windows MSVC output is `target\release\LogiBatteryTray.exe`. The repository's `dist\` directory contains the verified portable executable, license, and SHA-256 manifest.
 
-## 来源与许可
+## Origin and license
 
-本项目基于 [Ithilias/logitray v0.3.0](https://github.com/Ithilias/logitray) 定制，保留原项目 MIT 许可. 主要本地改造包括双接收器实测、单图标汇总并显示最低电量、休眠状态保留最后读数、中文菜单和 Windows GUI 子系统下的 CLI 输出修复.
+This project is based on [Ithilias/logitray v0.3.0](https://github.com/Ithilias/logitray) and retains its MIT license. Major customizations include multi-receiver support, a single lowest-battery summary icon, retained last readings for sleeping devices, Bluetooth GATT support, a Chinese tray interface, and repaired CLI output in a Windows GUI-subsystem build.
 
-完整许可见 `LICENSE`.
+See [LICENSE](LICENSE) for the full license text.

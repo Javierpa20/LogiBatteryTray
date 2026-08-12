@@ -1,5 +1,6 @@
 use crate::config;
 use crate::hid::client;
+use crate::model::deduplicate_devices;
 use anyhow::{Context, Result};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
@@ -14,24 +15,28 @@ pub fn run_once() -> Result<()> {
     let cfg = config::load_or_create_config()?;
     init_logging(&cfg);
 
-    let result = client::poll_once();
+    let usb = client::poll_once();
+    let bluetooth = crate::bluetooth::poll_once();
+    let devices = deduplicate_devices(usb.devices.into_iter().chain(bluetooth.devices).collect());
+    let errors: Vec<_> = usb.errors.into_iter().chain(bluetooth.errors).collect();
 
-    if result.devices.is_empty() {
+    if devices.is_empty() {
         println!("No supported Logitech devices found.");
     } else {
-        for dev in &result.devices {
+        for dev in &devices {
             println!(
-                "{} — {}{}",
+                "{} [{}] — {}{}",
                 dev.display_name,
+                dev.transport.label(),
                 dev.battery_percent,
                 if dev.is_charging { "% (charging)" } else { "%" }
             );
         }
     }
 
-    if !result.errors.is_empty() {
+    if !errors.is_empty() {
         eprintln!("Errors:");
-        for err in result.errors {
+        for err in errors {
             eprintln!("  {err}");
         }
     }

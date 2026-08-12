@@ -3,7 +3,7 @@ use crate::config::{self, AppConfig};
 use crate::hid::client::{self, DeviceEvent, WorkerCommand};
 use crate::hid::scanner::scan_receivers;
 use crate::icon;
-use crate::model::BatteryState;
+use crate::model::{normalized_device_name, BatteryState, Transport};
 use crate::notify::Notifier;
 use crate::PRODUCT_NAME;
 use anyhow::{Context, Result};
@@ -31,6 +31,7 @@ struct DeviceTrayProjection {
     battery_percent: u8,
     is_charging: bool,
     online: bool,
+    transport: Transport,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -49,6 +50,7 @@ impl DeviceTrayProjection {
             battery_percent: state.battery_percent,
             is_charging: state.is_charging,
             online: true,
+            transport: state.transport,
         }
     }
 }
@@ -83,6 +85,26 @@ fn sort_device_trays(devices: &mut [DeviceTrayProjection]) {
             .cmp(&b.display_name)
             .then(a.device_key.cmp(&b.device_key))
     });
+}
+
+fn deduplicate_device_trays(devices: Vec<DeviceTrayProjection>) -> Vec<DeviceTrayProjection> {
+    let mut grouped: BTreeMap<String, DeviceTrayProjection> = BTreeMap::new();
+    for device in devices {
+        let name = normalized_device_name(&device.display_name);
+        let replace = match grouped.get(&name) {
+            None => true,
+            Some(existing) => {
+                (device.online && !existing.online)
+                    || (device.online == existing.online && device.transport < existing.transport)
+            }
+        };
+        if replace {
+            grouped.insert(name, device);
+        }
+    }
+    let mut devices: Vec<_> = grouped.into_values().collect();
+    sort_device_trays(&mut devices);
+    devices
 }
 
 fn summarize_devices(devices: &[DeviceTrayProjection]) -> Option<TraySummary> {
@@ -423,8 +445,7 @@ pub fn run_tray_app(mut cfg: AppConfig) -> Result<()> {
                     }
                     apply_device_event(&mut device_map, event);
 
-                    devices = device_map.values().cloned().collect();
-                    sort_device_trays(&mut devices);
+                    devices = deduplicate_device_trays(device_map.values().cloned().collect());
 
                     if let Err(err) = menu.rebuild_device_menu(&devices) {
                         tracing::warn!("failed rebuilding menu: {err}");
@@ -521,6 +542,12 @@ fn spawn_supervisor(
         let mut workers: HashMap<u16, (mpsc::Sender<WorkerCommand>, thread::JoinHandle<()>)> =
             HashMap::new();
         let mut safety_secs = safety_secs;
+        let (bluetooth_tx, bluetooth_rx) = mpsc::channel::<WorkerCommand>();
+        let bluetooth_proxy = proxy.clone();
+        let _bluetooth_handle =
+            crate::bluetooth::spawn_worker(safety_secs, bluetooth_rx, move |event| {
+                let _ = bluetooth_proxy.send_event(UserEvent::Device(event));
+            });
 
         loop {
             // Drop workers whose thread has exited (receiver unplugged), so a
@@ -552,6 +579,7 @@ fn spawn_supervisor(
 
             match cmd_rx.recv_timeout(Duration::from_secs(RESCAN_SECS)) {
                 Ok(WorkerCommand::Exit) => {
+                    let _ = bluetooth_tx.send(WorkerCommand::Exit);
                     for (tx, _) in workers.values() {
                         let _ = tx.send(WorkerCommand::Exit);
                     }
@@ -561,6 +589,7 @@ fn spawn_supervisor(
                     if let WorkerCommand::SetSafetyInterval(secs) = cmd {
                         safety_secs = secs;
                     }
+                    let _ = bluetooth_tx.send(cmd.clone());
                     for (tx, _) in workers.values() {
                         let _ = tx.send(cmd.clone());
                     }
@@ -606,8 +635,11 @@ fn remove_item(submenu: &Submenu, item: &tray_icon::menu::MenuItemKind) -> Resul
 
 #[cfg(test)]
 mod tests {
-    use super::{device_tooltip, project_device_trays, summarize_devices, DeviceTrayProjection};
-    use crate::model::BatteryState;
+    use super::{
+        deduplicate_device_trays, device_tooltip, project_device_trays, summarize_devices,
+        DeviceTrayProjection,
+    };
+    use crate::model::{BatteryState, Transport};
     use std::collections::BTreeMap;
 
     fn mk(id: &str) -> BatteryState {
@@ -618,6 +650,7 @@ mod tests {
             device_index: 1,
             battery_percent: 80,
             is_charging: false,
+            transport: Transport::Receiver,
         }
     }
 
@@ -661,6 +694,7 @@ mod tests {
             battery_percent: 80,
             is_charging: false,
             online: true,
+            transport: Transport::Receiver,
         }));
         assert!(projected.contains(&DeviceTrayProjection {
             device_key: "mouse".to_string(),
@@ -668,6 +702,7 @@ mod tests {
             battery_percent: 95,
             is_charging: false,
             online: true,
+            transport: Transport::Receiver,
         }));
     }
 
@@ -721,5 +756,35 @@ mod tests {
             "MX Keys Wireless Keyboard：50%（休眠/未连接，最后读数）"
         );
         assert!(!device.online);
+    }
+
+    #[test]
+    fn online_bluetooth_wins_over_offline_receiver_for_same_device() {
+        let mut receiver = DeviceTrayProjection::online(&mk("receiver"));
+        receiver.display_name = "MX Master 3S".to_string();
+        receiver.online = false;
+        let mut bluetooth = DeviceTrayProjection::online(&mk("bluetooth"));
+        bluetooth.display_name = "MX Master 3S Bluetooth".to_string();
+        bluetooth.transport = Transport::Bluetooth;
+
+        let devices = deduplicate_device_trays(vec![receiver, bluetooth]);
+
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].transport, Transport::Bluetooth);
+        assert!(devices[0].online);
+    }
+
+    #[test]
+    fn online_receiver_wins_over_online_bluetooth_for_same_device() {
+        let mut receiver = DeviceTrayProjection::online(&mk("receiver"));
+        receiver.display_name = "MX Keys".to_string();
+        let mut bluetooth = DeviceTrayProjection::online(&mk("bluetooth"));
+        bluetooth.display_name = "MX Keys (Bluetooth)".to_string();
+        bluetooth.transport = Transport::Bluetooth;
+
+        let devices = deduplicate_device_trays(vec![bluetooth, receiver]);
+
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].transport, Transport::Receiver);
     }
 }

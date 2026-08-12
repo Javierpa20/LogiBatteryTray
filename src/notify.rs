@@ -126,7 +126,7 @@ fn low_battery_title(state: &BatteryState) -> String {
 #[cfg(test)]
 mod tests {
     use super::{low_battery_title, Notifier};
-    use crate::model::BatteryState;
+    use crate::model::{BatteryState, Transport};
     use std::time::{Duration, Instant};
 
     fn make_state(percent: u8, charging: bool) -> BatteryState {
@@ -137,6 +137,7 @@ mod tests {
             device_index: 1,
             battery_percent: percent,
             is_charging: charging,
+            transport: Transport::Receiver,
         }
     }
 

@@ -23,7 +23,7 @@ use crate::hid::protocol::{
 };
 use crate::hid::receiver::{self};
 use crate::hid::scanner::{open_notifier, open_receiver, scan_receivers, ReceiverPath};
-use crate::model::{BatteryState, PollResult};
+use crate::model::{BatteryState, PollResult, Transport};
 use anyhow::{bail, Context, Result};
 use hidapi::{HidApi, HidDevice};
 use std::collections::{BTreeSet, HashMap};
@@ -423,6 +423,7 @@ fn read_device(
         device_index: slot,
         battery_percent,
         is_charging,
+        transport: Transport::Receiver,
     }))
 }
 

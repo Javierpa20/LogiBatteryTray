@@ -5,6 +5,7 @@ LogiBatteryTray 便携版
 
 默认不会登录启动，也不会联网. 只有在托盘菜单中勾选“登录时启动”后才会写入当前用户启动项.
 
-当前支持通过 Logitech USB 接收器连接的 HID++ 2.0 设备，不支持纯蓝牙连接.
-源码与构建说明：D:\Programming\MyProjects\LogiBatteryTray\README.md
+支持通过 Logitech USB 接收器连接的 HID++ 2.0 设备，以及 Windows 能暴露标准 GATT Battery Service 的 Bluetooth LE 设备.
+某些只提供厂商私有电量服务的蓝牙设备仍无法读取；详细兼容边界见 GitHub README.
+源码与构建说明：https://github.com/Javierpa20/LogiBatteryTray
 许可：LICENSE（MIT，上游 Copyright (c) 2026 Ithilias）.

@@ -1,5 +1,6 @@
 pub mod app;
 pub mod autostart;
+pub mod bluetooth;
 pub mod config;
 pub mod device_map;
 pub mod hid;

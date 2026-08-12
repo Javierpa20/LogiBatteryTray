@@ -21,3 +21,11 @@ tray-icon = "0.21"
 [target.'cfg(windows)'.dependencies]
 tauri-winrt-notification = "0.7"
 winreg = "0.55"
+windows = { version = "0.61", features = [
+    "Devices_Bluetooth",
+    "Devices_Bluetooth_GenericAttributeProfile",
+    "Devices_Enumeration",
+    "Foundation",
+    "Storage_Streams",
+    "Win32_System_WinRT",
+] }
